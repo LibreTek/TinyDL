@@ -1,0 +1,4 @@
+<resources>
+    <dimen name="vertical_margin">27dp</dimen>
+    <dimen name="horizontal_margin">48dp</dimen>
+</resources>
