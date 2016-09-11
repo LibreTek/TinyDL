@@ -1,7 +1,8 @@
 <resources>
     <string name="app_name">Tiny DL</string>
+    <string name="welcome">The hashtag #SIDELOADTAG on Google+ catalogs top sideloads or link to your own at TinyURL.com and share the tag</string>
     <string name="shortner">tinyurl.com/</string>
-    <string name="tag_hint">ex. ABCDEFG</string>
+    <string name="tag_hint">SIDELOADTAG goes here</string>
     <string name="download">Download</string>
     <string name="directory">Directory</string>
     <string name="delete">Delete</string>

@@ -15,6 +15,7 @@ import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
+import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.text.InputFilter;
@@ -125,7 +126,10 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
         ((EditText) findViewById(R.id.tag)).setFilters(new InputFilter[] { new InputFilter() {
             public CharSequence filter(CharSequence source, int start, int end, Spanned dest, int dstart, int dend) {
                 for (int i = start; i < end; i++) {
-                    if (Character.isWhitespace(source.charAt(i))) {
+                    char character = source.charAt(i);
+                    if (Character.isWhitespace(character)) {
+                        return "";
+                    } else if (character == '#') {
                         return "";
                     }
                 }
@@ -143,6 +147,8 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
         });
 
         chmod();
+
+        Snackbar.make(findViewById(R.id.root_view), R.string.welcome, Snackbar.LENGTH_INDEFINITE).show();
     }
 
     @Override
@@ -153,7 +159,9 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
 
     @Override
     public boolean onEditorAction(TextView textView, int actionId, KeyEvent keyEvent) {
-        if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_NONE) {
+        if (actionId == EditorInfo.IME_ACTION_GO ||
+                actionId == EditorInfo.IME_ACTION_NONE ||
+                (actionId == EditorInfo.IME_NULL && keyEvent.getAction() == KeyEvent.ACTION_DOWN)) {
             wget();
         }
         return false;
