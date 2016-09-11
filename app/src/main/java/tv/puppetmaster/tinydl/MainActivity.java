@@ -10,6 +10,7 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
@@ -46,11 +47,31 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
     private static final ArrayList<String> FILES = new ArrayList<>();
 
     private static ArrayAdapter<String> FILE_ADAPTER;
+    private static DownloadManager DOWNLOAD_MANAGER;
 
     private BroadcastReceiver mDownloadCompleteReceiver = new BroadcastReceiver() {
         public void onReceive(Context ctxt, Intent intent) {
             ls_ltr();
+
+            Bundle extras = intent.getExtras();
+            DownloadManager.Query q = new DownloadManager.Query();
+            q.setFilterById(extras.getLong(DownloadManager.EXTRA_DOWNLOAD_ID));
+            Cursor c = DOWNLOAD_MANAGER.query(q);
+
+            if (c.moveToFirst()) {
+                int status = c.getInt(c.getColumnIndex(DownloadManager.COLUMN_STATUS));
+                if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                    String uri = c.getString(c.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI));
+                    if (uri != null && uri.endsWith(".apk")) {
+                        exec(Uri.parse(uri));
+                    }
+                }
+            }
+            c.close();
+
             progressStop();
+
+            Toast.makeText(ctxt, R.string.info_download_complete, Toast.LENGTH_LONG).show();
         }
     };
     private boolean mInProgress = false;
@@ -62,6 +83,7 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
 
         registerReceiver(mDownloadCompleteReceiver, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
 
+        DOWNLOAD_MANAGER = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
         FILE_ADAPTER = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, android.R.id.text1, FILES);
 
         ListView filesList = ((ListView) findViewById(R.id.listview));
@@ -92,18 +114,7 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
                 final String fileName = adapterView.getItemAtPosition(i).toString();
                 for (File f : DOWNLOADS_DIRECTORY.listFiles()) {
                     if (f.getName().equals(fileName)) {
-                        Uri uri = Uri.fromFile(f);
-                        String extension = android.webkit.MimeTypeMap.getFileExtensionFromUrl(uri.toString());
-                        String mimetype = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension);
-                        try {
-                            Intent intent = new Intent(Intent.ACTION_VIEW)
-                                    .setDataAndType(uri, mimetype)
-                                    .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                            startActivity(intent);
-                        } catch (Exception ex) {
-                            Log.e(TAG, "Start activity failed: " + uri, ex);
-                            Toast.makeText(MainActivity.this, R.string.error_starting_intent, Toast.LENGTH_LONG).show();
-                        }
+                        exec(Uri.fromFile(f));
                         return;
                     }
                 }
@@ -142,7 +153,7 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
 
     @Override
     public boolean onEditorAction(TextView textView, int actionId, KeyEvent keyEvent) {
-        if (actionId == EditorInfo.IME_ACTION_GO) {
+        if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_NONE) {
             wget();
         }
         return false;
@@ -159,11 +170,7 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
 
     @Override
     public void onDestroy() {
-        try {
-            unregisterReceiver(mDownloadCompleteReceiver);
-        } catch (IllegalArgumentException ex) {
-            Log.e(TAG, "Error unregistering receiver", ex);
-        }
+        unregisterReceiver(mDownloadCompleteReceiver);
         super.onDestroy();
     }
 
@@ -227,6 +234,20 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
             return true;
         }
     }
+
+    public void exec(Uri uri) {
+        String extension = android.webkit.MimeTypeMap.getFileExtensionFromUrl(uri.toString());
+        String mimetype = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension);
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, mimetype)
+                    .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+        } catch (Exception ex) {
+            Log.e(TAG, "Start activity failed: " + uri, ex);
+            Toast.makeText(MainActivity.this, R.string.error_starting_intent, Toast.LENGTH_LONG).show();
+        }
+    }
     
     public void progressStart() {
         mInProgress = true;
@@ -269,15 +290,9 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
             request.setTitle(getString(R.string.app_name) + ": " + downloadedFileName);
             request.setDescription(getString(R.string.directory) + ": " + DOWNLOADS_DIRECTORY.toString());
             request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, downloadedFileName);
-            DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            final DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
             manager.enqueue(request);
 
-            mDownloadCompleteReceiver = new BroadcastReceiver() {
-                public void onReceive(Context ctxt, Intent intent) {
-                    ls_ltr();
-                    progressStop();
-                }
-            };
             return false;
         }
 
