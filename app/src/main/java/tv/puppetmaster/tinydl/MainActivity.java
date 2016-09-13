@@ -32,6 +32,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
+import java.io.FilenameFilter;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
@@ -52,8 +53,6 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
 
     private BroadcastReceiver mDownloadCompleteReceiver = new BroadcastReceiver() {
         public void onReceive(Context ctxt, Intent intent) {
-            ls_ltr();
-
             Bundle extras = intent.getExtras();
             DownloadManager.Query q = new DownloadManager.Query();
             q.setFilterById(extras.getLong(DownloadManager.EXTRA_DOWNLOAD_ID));
@@ -65,14 +64,19 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
                     String uri = c.getString(c.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI));
                     if (uri != null && uri.endsWith(".apk")) {
                         exec(Uri.parse(uri));
+                        Toast.makeText(ctxt, R.string.info_download_complete, Toast.LENGTH_LONG).show();
+                    } else if (uri != null) {
+                        boolean success = new File(uri).delete();
+                        Toast.makeText(ctxt, ctxt.getString(R.string.warning_invalid_tag) + ": " + (success ? "Removed" : "Unremoved"), Toast.LENGTH_LONG).show();
                     }
+                } else {
+                    int reason = c.getInt(c.getColumnIndex(DownloadManager.COLUMN_REASON));
+                    Toast.makeText(ctxt, ctxt.getString(R.string.warning_invalid_tag) + ": " + reason, Toast.LENGTH_LONG).show();
                 }
             }
             c.close();
-
+            ls_ltr_apks();
             progressStop();
-
-            Toast.makeText(ctxt, R.string.info_download_complete, Toast.LENGTH_LONG).show();
         }
     };
     private boolean mInProgress = false;
@@ -153,7 +157,7 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
 
     @Override
     public void onResume() {
-        ls_ltr();
+        ls_ltr_apks();
         super.onResume();
     }
 
@@ -185,14 +189,18 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
     /**
      * Update the directory listing in reverse chronological order i.e. latest at the top
      */
-    public void ls_ltr() {
+    public void ls_ltr_apks() {
         if (DOWNLOADS_DIRECTORY != null && DOWNLOADS_DIRECTORY.listFiles() != null) {
             FILES.clear();
 
             /* VIA SOF: http://stackoverflow.com/a/4248059/6716223 */
 
             // Obtain the array of (file, timestamp) pairs.
-            File[] files = DOWNLOADS_DIRECTORY.listFiles();
+            File[] files = DOWNLOADS_DIRECTORY.listFiles(new FilenameFilter() {
+                public boolean accept(File dir, String name) {
+                    return name.endsWith(".apk");
+                }
+            });
             Pair[] pairs = new Pair[files.length];
             for (int i = 0; i < files.length; i++)
                 pairs[i] = new Pair(files[i]);
@@ -273,10 +281,10 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
         mInProgress = false;
     }
 
-    private class DownloadFile extends AsyncTask<String, Void, Boolean> {
+    private class DownloadFile extends AsyncTask<String, Void, Integer> {
 
         @Override
-        protected Boolean doInBackground(String... urls) {
+        protected Integer doInBackground(String... urls) {
             String downloadUri = null;
             try {
                 URLConnection con = new URL(urls[0]).openConnection();
@@ -286,13 +294,13 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
                 Log.e("DownloadFile", "Connection error", ex);
             }
             if (downloadUri == null) {
-                return true;
+                return R.string.error_download_failed;
             }
-            String fileName = downloadUri.substring(downloadUri.lastIndexOf("/") + 1).trim();
-            if (fileName.isEmpty()) {
-                fileName = "unknown.html";
+            String fileName = downloadUri.substring(downloadUri.lastIndexOf("/") + 1);
+            final String downloadedFileName = fileName.split("\\?")[0].trim();
+            if (downloadedFileName.isEmpty() || !downloadedFileName.endsWith(".apk")) {
+                return R.string.warning_invalid_tag;
             }
-            final String downloadedFileName = fileName.split("\\?")[0];
 
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(downloadUri));
             request.setTitle(getString(R.string.app_name) + ": " + downloadedFileName);
@@ -301,13 +309,14 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
             final DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
             manager.enqueue(request);
 
-            return false;
+            return -1;
         }
 
         @Override
-        protected void onPostExecute(Boolean end) {
-            if (end) {
+        protected void onPostExecute(Integer failureMessage) {
+            if (failureMessage >= 0) {
                 progressStop();
+                Toast.makeText(MainActivity.this, failureMessage, Toast.LENGTH_LONG).show();
             }
         }
     }
@@ -323,7 +332,7 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
             if (!deleted) {
                 Toast.makeText(MainActivity.this, R.string.error_deleting_file, Toast.LENGTH_LONG).show();
             } else {
-                ls_ltr();
+                ls_ltr_apks();
             }
         }
     }
