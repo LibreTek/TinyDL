@@ -13,11 +13,13 @@ import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
+import android.support.v4.content.FileProvider;
 import android.text.InputFilter;
 import android.text.Spanned;
 import android.util.Log;
@@ -61,13 +63,20 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
             if (c.moveToFirst()) {
                 int status = c.getInt(c.getColumnIndex(DownloadManager.COLUMN_STATUS));
                 if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                    String uri = c.getString(c.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI));
-                    if (uri != null && uri.endsWith(".apk")) {
-                        exec(Uri.parse(uri));
+                    String uriString = c.getString(c.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI));
+                    if (uriString != null && uriString.endsWith(".apk")) {
                         Toast.makeText(ctxt, R.string.info_download_complete, Toast.LENGTH_LONG).show();
-                    } else if (uri != null) {
-                        boolean success = new File(uri).delete();
+                        ls_ltr_apks();
+                        if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+                            // TODO: Nougat install upon download yields "There was a problem parsing the package"
+                            exec(new File(Uri.parse(uriString).getPath()));
+                        }
+                    } else if (uriString != null) {
+                        boolean success = new File(Uri.parse(uriString).getPath()).delete();
                         Toast.makeText(ctxt, ctxt.getString(R.string.warning_invalid_tag) + ": " + (success ? "Removed" : "Unremoved"), Toast.LENGTH_LONG).show();
+                        if (!success) {
+                            ls_ltr_apks();
+                        }
                     }
                 } else {
                     int reason = c.getInt(c.getColumnIndex(DownloadManager.COLUMN_REASON));
@@ -75,7 +84,6 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
                 }
             }
             c.close();
-            ls_ltr_apks();
             progressStop();
         }
     };
@@ -119,7 +127,7 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
                 final String fileName = adapterView.getItemAtPosition(i).toString();
                 for (File f : DOWNLOADS_DIRECTORY.listFiles()) {
                     if (f.getName().equals(fileName)) {
-                        exec(Uri.fromFile(f));
+                        exec(f);
                         return;
                     }
                 }
@@ -251,13 +259,16 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
         }
     }
 
-    public void exec(Uri uri) {
-        String extension = android.webkit.MimeTypeMap.getFileExtensionFromUrl(uri.toString());
-        String mimetype = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension);
+    public void exec(File file) {
+        Uri uri = FileProvider.getUriForFile(this, BuildConfig.APPLICATION_ID + ".provider", file); // Nougat style
         try {
-            Intent intent = new Intent(Intent.ACTION_VIEW)
-                    .setDataAndType(uri, mimetype)
-                    .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            Intent intent = new Intent(Intent.ACTION_INSTALL_PACKAGE)
+                    .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    .setDataAndType(
+                            android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.N ? Uri.fromFile(file) : uri,
+                            "application/vnd.android.package-archive"
+                    );
             startActivity(intent);
         } catch (Exception ex) {
             Log.e(TAG, "Start activity failed: " + uri, ex);
