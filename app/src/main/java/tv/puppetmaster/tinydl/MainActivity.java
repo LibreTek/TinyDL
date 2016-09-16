@@ -307,11 +307,7 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
             if (downloadUri == null) {
                 return R.string.error_download_failed;
             }
-            String fileName = downloadUri.substring(downloadUri.lastIndexOf("/") + 1);
-            final String downloadedFileName = fileName.split("\\?")[0].trim();
-            if (downloadedFileName.isEmpty() || !downloadedFileName.endsWith(".apk")) {
-                return R.string.warning_invalid_tag;
-            }
+            final String downloadedFileName = urls[0].substring(urls[0].lastIndexOf("/") + 1).trim() + ".apk";
 
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(downloadUri));
             request.setTitle(getString(R.string.app_name) + ": " + downloadedFileName);
