@@ -1,28 +1,13 @@
 package tv.puppetmaster.tinydl;
 
-import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.DownloadManager;
-import android.content.BroadcastReceiver;
-import android.content.Context;
 import android.content.DialogInterface;
-import android.content.Intent;
-import android.content.IntentFilter;
-import android.content.pm.PackageManager;
-import android.database.Cursor;
-import android.net.Uri;
-import android.os.AsyncTask;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.support.design.widget.Snackbar;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.content.ContextCompat;
-import android.support.v4.content.FileProvider;
 import android.text.InputFilter;
 import android.text.Spanned;
-import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -35,71 +20,30 @@ import android.widget.Toast;
 
 import java.io.File;
 import java.io.FilenameFilter;
-import java.net.URL;
-import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 public class MainActivity extends Activity implements TextView.OnEditorActionListener {
-
-    private static final String TAG = "MainActivity";
-
-    private static final String SHORTENING_SERVICE = "http://tinyurl.com/";
-    private static final File DOWNLOADS_DIRECTORY = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);;
-    private static final int REQUEST_READWRITE_STORAGE = 0;
-    private static final ArrayList<String> FILES = new ArrayList<>();
+    private static final String TAG = MainActivity.class.getSimpleName();
+    private PackageInstaller mPackageInstaller;
+    private static final File DOWNLOADS_DIRECTORY = Environment.getExternalStoragePublicDirectory(
+            Environment.DIRECTORY_DOWNLOADS);
 
     private static ArrayAdapter<String> FILE_ADAPTER;
-    private static DownloadManager DOWNLOAD_MANAGER;
-
-    private BroadcastReceiver mDownloadCompleteReceiver = new BroadcastReceiver() {
-        public void onReceive(Context ctxt, Intent intent) {
-            Bundle extras = intent.getExtras();
-            DownloadManager.Query q = new DownloadManager.Query();
-            q.setFilterById(extras.getLong(DownloadManager.EXTRA_DOWNLOAD_ID));
-            Cursor c = DOWNLOAD_MANAGER.query(q);
-
-            if (c.moveToFirst()) {
-                int status = c.getInt(c.getColumnIndex(DownloadManager.COLUMN_STATUS));
-                if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                    String uriString = c.getString(c.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI));
-                    if (uriString != null && uriString.endsWith(".apk")) {
-                        Toast.makeText(ctxt, R.string.info_download_complete, Toast.LENGTH_LONG).show();
-                        ls_ltr_apks();
-                        if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
-                            // TODO: Nougat install upon download yields "There was a problem parsing the package"
-                            exec(new File(Uri.parse(uriString).getPath()));
-                        }
-                    } else if (uriString != null) {
-                        boolean success = new File(Uri.parse(uriString).getPath()).delete();
-                        Toast.makeText(ctxt, ctxt.getString(R.string.warning_invalid_tag) + ": " + (success ? "Removed" : "Unremoved"), Toast.LENGTH_LONG).show();
-                        if (!success) {
-                            ls_ltr_apks();
-                        }
-                    }
-                } else {
-                    int reason = c.getInt(c.getColumnIndex(DownloadManager.COLUMN_REASON));
-                    Toast.makeText(ctxt, ctxt.getString(R.string.warning_invalid_tag) + ": " + reason, Toast.LENGTH_LONG).show();
-                }
-            }
-            c.close();
-            progressStop();
-        }
-    };
-    private boolean mInProgress = false;
+    private static final List<String> FILES = new ArrayList<>();
+    private static final String SHORTENING_SERVICE = "http://tinyurl.com/";
+    private static boolean mInProgress;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        registerReceiver(mDownloadCompleteReceiver, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
-
-        DOWNLOAD_MANAGER = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-        FILE_ADAPTER = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, android.R.id.text1, FILES);
-
         ListView filesList = ((ListView) findViewById(R.id.listview));
+        FILE_ADAPTER = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1,
+                android.R.id.text1, FILES);
         filesList.setAdapter(FILE_ADAPTER);
 
         filesList.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
@@ -112,7 +56,7 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
                         .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
                             @Override
                             public void onClick(DialogInterface dialog, int which) {
-                                new DeleteFile().execute(fileName);
+                                mPackageInstaller.deleteFile(new File(fileName));
                             }
                         })
                         .setNegativeButton(android.R.string.cancel, null)
@@ -127,7 +71,7 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
                 final String fileName = adapterView.getItemAtPosition(i).toString();
                 for (File f : DOWNLOADS_DIRECTORY.listFiles()) {
                     if (f.getName().equals(fileName)) {
-                        exec(f);
+                        mPackageInstaller.install(f);
                         return;
                     }
                 }
@@ -158,9 +102,39 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
             }
         });
 
-        chmod();
+        mPackageInstaller = PackageInstaller.initialize(this);
+        mPackageInstaller.addListener(new PackageInstaller.DownloadListener() {
+            @Override
+            public void onApkDownloaded(File downloadedApkFile) {
+                ls_ltr_apks();
+                mPackageInstaller.install(downloadedApkFile);
+            }
 
-        Snackbar.make(findViewById(R.id.root_view), R.string.welcome, Snackbar.LENGTH_INDEFINITE).show();
+            @Override
+            public void onApkDownloadedNougat(File downloadedApkFile) {
+                ls_ltr_apks();
+            }
+
+            @Override
+            public void onFileDeleted(File deletedApkFile, boolean wasSuccessful) {
+                if (wasSuccessful) {
+                    ls_ltr_apks();
+                }
+            }
+
+            @Override
+            public void onProgressStarted() {
+                progressStart();
+            }
+
+            @Override
+            public void onProgressEnded() {
+                progressStop();
+            }
+        });
+
+        Snackbar.make(findViewById(R.id.root_view), R.string.welcome,
+                Snackbar.LENGTH_INDEFINITE).show();
     }
 
     @Override
@@ -190,7 +164,7 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
 
     @Override
     public void onDestroy() {
-        unregisterReceiver(mDownloadCompleteReceiver);
+        mPackageInstaller.destroy();
         super.onDestroy();
     }
 
@@ -230,52 +204,17 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
     }
 
     public void wget() {
-        if (!chmod()) {
+        if (!mPackageInstaller.chmod()) {
             return;
         }
-        progressStart();
         String tag = ((EditText) findViewById(R.id.tag)).getText().toString().trim();
         if (tag.isEmpty()) {
-            progressStop();
             Toast.makeText(MainActivity.this, R.string.warning_invalid_tag, Toast.LENGTH_LONG).show();
         } else {
-            new DownloadFile().execute(SHORTENING_SERVICE + tag);
+            mPackageInstaller.wget(SHORTENING_SERVICE + tag);
         }
     }
 
-    public boolean chmod() {
-        int permissionCheck1 = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE);
-        int permissionCheck2 = ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE);
-        if (permissionCheck1 != PackageManager.PERMISSION_GRANTED || permissionCheck2 != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                    new String[] {
-                            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                            Manifest.permission.READ_EXTERNAL_STORAGE
-                    },
-                    REQUEST_READWRITE_STORAGE);
-            return false;
-        } else {
-            return true;
-        }
-    }
-
-    public void exec(File file) {
-        Uri uri = FileProvider.getUriForFile(this, BuildConfig.APPLICATION_ID + ".provider", file); // Nougat style
-        try {
-            Intent intent = new Intent(Intent.ACTION_INSTALL_PACKAGE)
-                    .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    .setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    .setDataAndType(
-                            android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.N ? Uri.fromFile(file) : uri,
-                            "application/vnd.android.package-archive"
-                    );
-            startActivity(intent);
-        } catch (Exception ex) {
-            Log.e(TAG, "Start activity failed: " + uri, ex);
-            Toast.makeText(MainActivity.this, R.string.error_starting_intent, Toast.LENGTH_LONG).show();
-        }
-    }
-    
     public void progressStart() {
         mInProgress = true;
         findViewById(R.id.form_thinking).setVisibility(View.VISIBLE);
@@ -292,58 +231,6 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
         mInProgress = false;
     }
 
-    private class DownloadFile extends AsyncTask<String, Void, Integer> {
-
-        @Override
-        protected Integer doInBackground(String... urls) {
-            String downloadUri = null;
-            try {
-                URLConnection con = new URL(urls[0]).openConnection();
-                con.getHeaderFields();
-                downloadUri = con.getURL().toString();
-            } catch (Exception ex) {
-                Log.e("DownloadFile", "Connection error", ex);
-            }
-            if (downloadUri == null) {
-                return R.string.error_download_failed;
-            }
-            final String downloadedFileName = urls[0].substring(urls[0].lastIndexOf("/") + 1).trim() + ".apk";
-
-            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(downloadUri));
-            request.setTitle(getString(R.string.app_name) + ": " + downloadedFileName);
-            request.setDescription(getString(R.string.directory) + ": " + DOWNLOADS_DIRECTORY.toString());
-            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, downloadedFileName);
-            final DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-            manager.enqueue(request);
-
-            return -1;
-        }
-
-        @Override
-        protected void onPostExecute(Integer failureMessage) {
-            if (failureMessage >= 0) {
-                progressStop();
-                Toast.makeText(MainActivity.this, failureMessage, Toast.LENGTH_LONG).show();
-            }
-        }
-    }
-
-    private class DeleteFile extends AsyncTask<String, Void, Boolean> {
-        @Override
-        protected Boolean doInBackground(String... filenames) {
-            return new File(DOWNLOADS_DIRECTORY, filenames[0]).delete();
-        }
-
-        @Override
-        protected void onPostExecute(Boolean deleted) {
-            if (!deleted) {
-                Toast.makeText(MainActivity.this, R.string.error_deleting_file, Toast.LENGTH_LONG).show();
-            } else {
-                ls_ltr_apks();
-            }
-        }
-    }
-
     class Pair implements Comparable {
         public long t;
         public File f;
@@ -357,5 +244,5 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
             long u = ((Pair) o).t;
             return t < u ? -1 : t == u ? 0 : 1;
         }
-    };
+    }
 }
