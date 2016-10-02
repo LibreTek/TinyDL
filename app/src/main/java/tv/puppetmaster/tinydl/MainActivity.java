@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.os.Bundle;
 import android.os.Environment;
+import android.support.annotation.NonNull;
 import android.support.design.widget.Snackbar;
 import android.text.InputFilter;
 import android.text.Spanned;
@@ -56,7 +57,7 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
                         .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
                             @Override
                             public void onClick(DialogInterface dialog, int which) {
-                                mPackageInstaller.deleteFile(new File(fileName));
+                                mPackageInstaller.deleteFile(new File(DOWNLOADS_DIRECTORY, fileName));
                             }
                         })
                         .setNegativeButton(android.R.string.cancel, null)
@@ -232,15 +233,15 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
     }
 
     class Pair implements Comparable {
-        public long t;
-        public File f;
+        long t;
+        File f;
 
-        public Pair(File file) {
+        Pair(File file) {
             f = file;
             t = file.lastModified();
         }
 
-        public int compareTo(Object o) {
+        public int compareTo(@NonNull Object o) {
             long u = ((Pair) o).t;
             return t < u ? -1 : t == u ? 0 : 1;
         }
