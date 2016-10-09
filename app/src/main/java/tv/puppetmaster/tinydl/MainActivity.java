@@ -5,6 +5,8 @@ import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.support.annotation.NonNull;
 import android.support.design.widget.Snackbar;
 import android.text.InputFilter;
@@ -112,8 +114,15 @@ public class MainActivity extends Activity implements TextView.OnEditorActionLis
             }
 
             @Override
-            public void onApkDownloadedNougat(File downloadedApkFile) {
+            public void onApkDownloadedNougat(final File downloadedApkFile) {
                 ls_ltr_apks();
+                new Handler(Looper.getMainLooper()).postDelayed(
+                        new Runnable() {
+                            @Override
+                            public void run() {
+                                mPackageInstaller.install(downloadedApkFile);
+                            }
+                        }, 1000 * 3);
             }
 
             @Override
